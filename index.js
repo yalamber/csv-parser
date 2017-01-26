@@ -5,6 +5,7 @@ var genfun = require('generate-function')
 
 var quote = new Buffer('"')[0]
 var comma = new Buffer(',')[0]
+var comment = '#'
 var cr = new Buffer('\r')[0]
 var nl = new Buffer('\n')[0]
 
@@ -17,6 +18,7 @@ var Parser = function (opts) {
   this.separator = opts.separator ? new Buffer(opts.separator)[0] : comma
   this.quote = opts.quote ? new Buffer(opts.quote)[0] : quote
   this.escape = opts.escape ? new Buffer(opts.escape)[0] : this.quote
+  this.comment = opts.comment ? opts.comment : comment
   if (opts.newline) {
     this.newline = new Buffer(opts.newline)[0]
     this.customNewline = true
@@ -28,6 +30,7 @@ var Parser = function (opts) {
   this.headers = opts.headers || null
   this.strict = opts.strict || null
   this.mapHeaders = opts.mapHeaders || defaultMapHeaders
+  this.skipUntil = opts.skipUntil || null
 
   this._raw = !!opts.raw
   this._prev = null
@@ -124,7 +127,7 @@ Parser.prototype._online = function (buf, start, end) {
   var cells = []
   var isQuoted = false
   var offset = start
-
+  var commentsLength = this.comment.length;
   for (var i = start; i < end; i++) {
     var isStartingQuote = !isQuoted && buf[i] === this.quote
     var isEndingQuote = isQuoted && buf[i] === this.quote && i + 1 <= end && buf[i + 1] === comma
@@ -137,7 +140,6 @@ Parser.prototype._online = function (buf, start, end) {
       i++
       continue
     }
-
     if (buf[i] === comma && !isQuoted) {
       cells.push(this._oncell(buf, offset, i))
       offset = i + 1
@@ -146,8 +148,8 @@ Parser.prototype._online = function (buf, start, end) {
 
   if (offset < end) cells.push(this._oncell(buf, offset, end))
   if (buf[end - 1] === comma) cells.push(this._empty)
-
-  if (this._first) {
+  var skip = this.skipUntil && cells.indexOf(this.skipUntil) === -1
+  if (this._first && !skip) {
     this._first = false
     this.headers = cells
     this._compile(cells)
@@ -158,7 +160,9 @@ Parser.prototype._online = function (buf, start, end) {
   if (this.strict && cells.length !== this.headers.length) {
     this.emit('error', new Error('Row length does not match headers'))
   } else {
-    this._emit(this._Row, cells)
+    if (!this._first && (cells[0].substr(0, commentsLength) !== this.comment)) {
+      this._emit(this._Row, cells)
+    }
   }
 }
 
